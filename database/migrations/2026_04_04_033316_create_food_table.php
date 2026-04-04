@@ -11,13 +11,22 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('makanan', function (Blueprint $table) {
+        Schema::create('foods', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->string('nama');
-            $table->enum('jenis', ['makanan', 'minuman', 'lainnya']);
+            $table->enum('jenis', [
+                'Frozen',
+                'Buah',
+                'Sayur',
+                'Masakan jadi',
+                'Minuman Kaleng',
+                'Susu',
+                'Jus',
+                'Snack'
+            ]);
             $table->date('tanggal_beli');
-            $table->date('tanggal_kadaluarsa');
+            $table->date('tanggal_kadaluarsa')->nullable();
             $table->integer('jumlah');
             $table->enum('status_penggunaan', ['tersedia', 'habis']);
             $table->timestamps();
@@ -29,6 +38,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('food');
+        Schema::dropIfExists('foods');
     }
 };

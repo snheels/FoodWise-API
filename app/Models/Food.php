@@ -20,6 +20,18 @@ class Food extends Model
 {
     use HasFactory;
 
+    protected $table = 'foods';
+
+    protected $fillable = [
+        'user_id',
+        'nama',
+        'jenis',
+        'tanggal_beli',
+        'tanggal_kadaluarsa',
+        'jumlah',
+        'status_penggunaan'
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);
