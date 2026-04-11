@@ -2,92 +2,119 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Food;
+use Illuminate\Http\Request;
 use Carbon\Carbon;
 
 class FoodController extends Controller
 {
-    // get all (munculin semua data)
+    // GET ALL
     public function index()
     {
-        return Food::latest()->get()->map(function ($food) {
-            return [
-                'id' => $food->id,
-                'nama' => $food->nama,
-                'kategori' => ucfirst($food->jenis),
-                'tanggal_beli' => $food->tanggal_beli->format('d F Y'),
-                'info_expired' => $food->tanggal_kadaluarsa
-                    ? 'Kadaluarsa: ' . $food->tanggal_kadaluarsa->format('d F Y')
-                    : 'Baik digunakan segera',
-                'jumlah' => $food->jumlah,
-                'satuan' => 'Pcs',
-                'status' => $this->getStatus($food),
-            ];
-        });
+        return Food::latest()
+            ->where('status_penggunaan', 'tersedia')
+            ->get()
+            ->map(function ($food) {
+                return [
+                    'id' => $food->id,
+                    'nama' => $food->nama,
+                    'kategori' => $food->jenis,
+                    'tanggal_beli' => $food->tanggal_beli->format('d F Y'),
+                    'expired_info' => $this->getExpiredLabel($food),
+                    'jumlah' => $food->jumlah,
+                    'satuan' => 'Pcs',
+                    'status' => $this->getStatus($food),
+                ];
+            });
     }
 
-    // create
+    // STORE
     public function store(Request $request)
     {
-        $data = $request->all();
+        $data = $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'nama' => 'required|string',
+            'jenis' => 'required',
+            'tanggal_beli' => 'required|date',
+            'tanggal_kadaluarsa' => 'nullable|date',
+            'jumlah' => 'required|integer|min:1',
+        ]);
 
-        // kalau jenis tertentu → null
         if ($this->tanpaExpired($data['jenis'])) {
             $data['tanggal_kadaluarsa'] = null;
         }
 
-        $food = Food::create([
-            'user_id' => $data['user_id'],
-            'nama' => $data['nama'],
-            'jenis' => $data['jenis'],
-            'tanggal_beli' => $data['tanggal_beli'],
-            'tanggal_kadaluarsa' => $data['tanggal_kadaluarsa'],
-            'jumlah' => $data['jumlah'],
-            'status_penggunaan' => 'tersedia'
-        ]);
+        $food = Food::create($data);
+
+        // Google Calendar
+        // if (session('google_token')) {
+        //     $this->createCalendarEvent($food);
+        // }
 
         return $food;
     }
 
-    // detail
-    public function show($id)
+    // MARK AS CONSUMED
+    public function consume($id)
     {
-        return Food::findOrFail($id);
+        $food = Food::findOrFail($id);
+        $food->status_penggunaan = 'habis';
+        $food->save();
+
+        return response()->json(['message' => 'Food consumed']);
     }
 
-    public function update(Request $request, $id)
+    // MARK AS DISCARDED
+    public function discard($id)
     {
-        //
+        $food = Food::findOrFail($id);
+        $food->status_penggunaan = 'dibuang';
+        $food->save();
+
+        return response()->json(['message' => 'Food discarded']);
     }
 
-    // delete
-    public function destroy($id)
-    {
-        Food::destroy($id);
-        return response()->json(['message' => 'Deleted']);
-    }
-
-    // dashboard data
+    // DASHBOARD
     public function dashboard()
     {
-        return [
-            'total' => Food::count(),
-            'safe' => Food::where('tanggal_kadaluarsa', '>', now()->addDays(3))->count(),
-            'expired' => Food::where('tanggal_kadaluarsa', '<', now())->count(),
-        ];
+        $total = Food::count();
+        $tersedia = Food::where('status_penggunaan', 'tersedia')->count();
+        $habis = Food::where('status_penggunaan', 'habis')->count();
+        $dibuang = Food::where('status_penggunaan', 'dibuang')->count();
+
+        return response()->json([
+            'total' => $total,
+            'tersedia' => $tersedia,
+            'habis' => $habis,
+            'dibuang' => $dibuang
+        ]);
     }
 
-    // expired
     public function expiringSoon()
     {
-        return Food::whereBetween('tanggal_kadaluarsa', [
-            Carbon::today(),
-            Carbon::today()->addDays(3)
-        ])->get();
+        $foods = Food::where('status_penggunaan', 'tersedia')
+            ->whereNotNull('tanggal_kadaluarsa')
+            ->get()
+            ->filter(function ($food) {
+                $days = Carbon::now()->diffInDays($food->tanggal_kadaluarsa, false);
+                return $days <= 3 && $days >= 0;
+            })
+            ->values();
+
+        return $foods->map(function ($food) {
+            return [
+                'id' => $food->id,
+                'nama' => $food->nama,
+                'tanggal_kadaluarsa' => $food->tanggal_kadaluarsa->format('d F Y'),
+                'status' => 'warning'
+            ];
+        });
     }
 
-    // tanpa expired
+    // ======================
+    // HELPER
+    // ======================
+
     private function tanpaExpired($jenis)
     {
         return in_array($jenis, [
@@ -98,19 +125,51 @@ class FoodController extends Controller
         ]);
     }
 
-    // warna ui status
+    private function getExpiredLabel($food)
+    {
+        if (!$food->tanggal_kadaluarsa) {
+            return 'Baik digunakan segera';
+        }
+
+        return 'Kadaluarsa: ' . $food->tanggal_kadaluarsa->format('d F Y');
+    }
+
     private function getStatus($food)
     {
-        $today = now();
+        if ($food->status_penggunaan === 'habis') return 'done';
+        if ($food->status_penggunaan === 'dibuang') return 'expired';
 
-        if ($food->tanggal_kadaluarsa < $today) {
-            return 'expired'; // merah
-        }
+        if (!$food->tanggal_kadaluarsa) return 'normal';
 
-        if ($food->tanggal_kadaluarsa <= $today->copy()->addDays(3)) {
-            return 'warning'; // kuning
-        }
+        $days = Carbon::now()->diffInDays($food->tanggal_kadaluarsa, false);
 
-        return 'safe'; // biru/hijau
+        if ($days < 0) return 'expired';
+        if ($days <= 3) return 'warning';
+
+        return 'safe';
     }
+
+    // ======================
+    // GOOGLE CALENDAR
+    // ======================
+
+    // private function createCalendarEvent($food)
+    // {
+    //     if (!$food->tanggal_kadaluarsa) return;
+
+    //     $client = new \Google\Client();
+    //     $client->setClientId(config('services.google.client_id'));
+    //     $client->setClientSecret(config('services.google.client_secret'));
+    //     $client->setAccessToken(session('google_token'));
+
+    //     $service = new \Google\Service\Calendar($client);
+
+    //     $event = new \Google\Service\Calendar\Event([
+    //         'summary' => 'Food Expiring: ' . $food->nama,
+    //         'start' => ['date' => $food->tanggal_kadaluarsa->toDateString()],
+    //         'end' => ['date' => $food->tanggal_kadaluarsa->toDateString()],
+    //     ]);
+
+    //     $service->events->insert('primary', $event);
+    // }
 }

@@ -32,11 +32,6 @@ class Food extends Model
         'status_penggunaan'
     ];
 
-    public function user()
-    {
-        return $this->belongsTo(User::class);
-    }
-
     protected function casts(): array
     {
         return [

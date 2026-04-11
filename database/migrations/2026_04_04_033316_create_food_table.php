@@ -28,7 +28,11 @@ return new class extends Migration
             $table->date('tanggal_beli');
             $table->date('tanggal_kadaluarsa')->nullable();
             $table->integer('jumlah');
-            $table->enum('status_penggunaan', ['tersedia', 'habis']);
+            $table->enum('status_penggunaan', [
+                'tersedia',
+                'habis',
+                'dibuang'
+            ])->default('tersedia');
             $table->timestamps();
         });
     }
