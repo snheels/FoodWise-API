@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\FoodController;
+use App\Http\Controllers\UserController;
 use Laravel\Socialite\Facades\Socialite;
 
 Route::get('/user', [UserController::class, 'index']);
@@ -22,3 +22,7 @@ Route::get('/foods/{id}', [FoodController::class, 'show']);
 Route::patch('/foods/{id}/consume', [FoodController::class, 'consume']);
 Route::patch('/foods/{id}/discard', [FoodController::class, 'discard']);
 Route::patch('/foods/{id}/remind', [FoodController::class, 'remind']);
+
+Route::middleware('auth:sanctum')->get('/me', function (Request $request) {
+    return $request->user();
+});
