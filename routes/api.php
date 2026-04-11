@@ -8,26 +8,17 @@ use Laravel\Socialite\Facades\Socialite;
 
 Route::get('/user', [UserController::class, 'index']);
 
-Route::apiResource('foods', FoodController::class);
-// tambahan fitur
-Route::get('foods/dashboard', [FoodController::class, 'dashboard']);
-Route::get('foods/expiring-soon', [FoodController::class, 'expiringSoon']);
-
-Route::patch('foods/{id}/consume', [FoodController::class, 'consume']);
-Route::patch('foods/{id}/discard', [FoodController::class, 'discard']);
-
-
-// GOOGLE AUTH
-// Route::get('auth/google', function () {
-//     return Socialite::driver('google')
-//         ->scopes(['https://www.googleapis.com/auth/calendar'])
-//         ->redirect();
-// });
-
-// Route::get('auth/google/callback', function () {
-//     $user = Socialite::driver('google')->stateless()->user();
-
-//     session(['google_token' => $user->token]);
-
-//     return response()->json($user);
-// });
+// SEMENTARA
+// dashboard
+Route::get('/dashboard', [FoodController::class, 'dashboard']);
+Route::get('/dashboard/expiring-soon', [FoodController::class, 'expiringSoon']);
+Route::get('/dashboard/chart', [FoodController::class, 'wasteChart']);
+// semua data
+Route::get('/foods', [FoodController::class, 'index']);
+// tambah data
+Route::post('/foods', [FoodController::class, 'store']);
+// detail
+Route::get('/foods/{id}', [FoodController::class, 'show']);
+Route::patch('/foods/{id}/consume', [FoodController::class, 'consume']);
+Route::patch('/foods/{id}/discard', [FoodController::class, 'discard']);
+Route::patch('/foods/{id}/remind', [FoodController::class, 'remind']);

@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('foods', function (Blueprint $table) {
@@ -19,6 +16,7 @@ return new class extends Migration
                 'Frozen',
                 'Buah',
                 'Sayur',
+                'Daging',
                 'Masakan jadi',
                 'Minuman Kaleng',
                 'Susu',
@@ -28,18 +26,21 @@ return new class extends Migration
             $table->date('tanggal_beli');
             $table->date('tanggal_kadaluarsa')->nullable();
             $table->integer('jumlah');
+            $table->enum('satuan', ['pcs', 'kg'])->default('pcs'); // ← Tambah ini
             $table->enum('status_penggunaan', [
                 'tersedia',
                 'habis',
                 'dibuang'
             ])->default('tersedia');
+
+            // GOOGLE CALENDAR
+            $table->string('google_event_id')->nullable()->unique();
+            $table->timestamp('terakhir_diingatkan')->nullable();
+
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('foods');

@@ -14,7 +14,10 @@ use Illuminate\Notifications\Notifiable;
     [
         'name',
         'email',
-        'password'
+        'password',
+        'google_id',
+        'google_token',
+        'google_refresh_token',
     ]
 )]
 
