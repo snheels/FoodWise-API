@@ -57,29 +57,26 @@ php artisan migrate
 ```bash
 php artisan serve
 ```
-
 Server akan berjalan di:
+```bash
 http://127.0.0.1:8000
+```
 
 ---
 
 ## Endpoint API
-GET    /api/auth/google               → Login dengan Google
-GET    /api/auth/google/callback      → Callback dari Google
-
-GET    /api/me                        → Data user login
-
-GET    /api/dashboard                 → Ringkasan data
-GET    /api/dashboard/expiring-soon   → Makanan hampir kadaluarsa
-GET    /api/dashboard/chart           → Data chart food waste
-
-GET    /api/foods                     → List makanan
-POST   /api/foods                     → Tambah makanan
-GET    /api/foods/{id}                → Detail makanan
-
-PATCH  /api/foods/{id}/consume       → Tandai sudah dikonsumsi
-PATCH  /api/foods/{id}/discard       → Tandai dibuang
-POST   /api/foods/{id}/remind        → Set reminder
+- GET    /api/auth/google               → Login dengan Google
+- GET    /api/auth/google/callback      → Callback dari Google
+- GET    /api/me                        → Data user login
+- GET    /api/dashboard                 → Ringkasan data
+- GET    /api/dashboard/expiring-soon   → Makanan hampir kadaluarsa
+- GET    /api/dashboard/chart           → Data chart food waste
+- GET    /api/foods                     → List makanan
+- POST   /api/foods                     → Tambah makanan
+- GET    /api/foods/{id}                → Detail makanan
+- PATCH  /api/foods/{id}/consume       → Tandai sudah dikonsumsi
+- PATCH  /api/foods/{id}/discard       → Tandai dibuang
+- POST   /api/foods/{id}/remind        → Set reminder
 
 ---
 
