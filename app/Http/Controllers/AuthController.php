@@ -35,11 +35,17 @@ class AuthController extends Controller
             [
                 'name' => $googleUser->getName(),
                 'google_id' => $googleUser->getId(),
-                'google_token' => $googleUser->token,
+                'google_token' => $googleUser->token,  // ← PASTIKAN INI
                 'google_refresh_token' => $googleUser->refreshToken ?? $existingUser?->google_refresh_token,
                 'password' => bcrypt('google-login'),
             ]
         );
+
+        // Simpan refresh token jika ada
+        if ($googleUser->refreshToken && !$user->google_refresh_token) {
+            $user->google_refresh_token = $googleUser->refreshToken;
+            $user->save();
+        }
 
         $token = $user->createToken('auth_token')->plainTextToken;
 

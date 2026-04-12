@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Food;
+use App\Services\GoogleCalendarService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class FoodController extends Controller
@@ -11,7 +14,7 @@ class FoodController extends Controller
     // HALAMAN SemuaData
     public function index(Request $request)
     {
-        $userId = 1;
+        $userId = Auth::id(); // ✅ Ambil dari user yang login
         $filter = $request->get('filter', 'semua');
         $perPage = $request->get('per_page', 10);
 
@@ -61,7 +64,6 @@ class FoodController extends Controller
         ]);
     }
 
-
     // HALAMAN AddFood
     public function store(Request $request)
     {
@@ -74,10 +76,41 @@ class FoodController extends Controller
             'satuan' => 'sometimes|string|in:pcs,kg'
         ]);
 
-        $data['user_id'] = 1; // sementara, nanti ganti dengan auth()->id()
+        $data['user_id'] = Auth::id();
         $data['status_penggunaan'] = 'tersedia';
 
+        if (!isset($data['satuan'])) {
+            $data['satuan'] = 'pcs';
+        }
+
+        // LOGIKA KHUSUS BUAH & SAYUR
+        if ($data['jenis'] === 'Buah' || $data['jenis'] === 'Sayur') {
+            // Tanggal kadaluarsa = 3 hari setelah tanggal beli
+            $tanggalBeli = Carbon::parse($data['tanggal_beli']);
+            $data['tanggal_kadaluarsa'] = $tanggalBeli->addDays(3)->format('Y-m-d');
+        }
+
         $food = Food::create($data);
+
+        // Buat event Google Calendar jika user punya token dan tanggal kadaluarsa ada
+        if ($food->tanggal_kadaluarsa && Auth::user()->google_token) {
+            try {
+                $calendarService = new GoogleCalendarService(Auth::user());
+
+                // Untuk Buah & Sayur: reminder di hari kadaluarsa
+                if ($food->jenis === 'Buah' || $food->jenis === 'Sayur') {
+                    $tanggalKadaluarsa = Carbon::parse($food->tanggal_kadaluarsa);
+                    $eventId = $calendarService->createEventOnExpiryDate($food, $tanggalKadaluarsa);
+                } else {
+                    $eventId = $calendarService->createEvent($food);
+                }
+
+                $food->google_event_id = $eventId;
+                $food->save();
+            } catch (\Exception $e) {
+                Log::error('Google Calendar Error: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'message' => 'Makanan berhasil ditambahkan!',
@@ -85,11 +118,148 @@ class FoodController extends Controller
         ], 201);
     }
 
+    // Update event calendar saat food diupdate
+    public function update(Request $request, $id)
+    {
+        $food = Food::where('user_id', Auth::id())->findOrFail($id);
+
+        $data = $request->validate([
+            'nama' => 'sometimes|string|max:255',
+            'jenis' => 'sometimes|string',
+            'tanggal_beli' => 'sometimes|date',
+            'tanggal_kadaluarsa' => 'nullable|date',
+            'jumlah' => 'sometimes|integer|min:1',
+            'satuan' => 'sometimes|string|in:pcs,kg'
+        ]);
+
+        $food->update($data);
+
+        // Update event calendar jika ada perubahan tanggal kadaluarsa
+        if ($food->tanggal_kadaluarsa && Auth::user()->google_token) {
+            try {
+                $calendarService = new GoogleCalendarService(Auth::user());
+                $calendarService->updateEvent($food);
+            } catch (\Exception $e) {
+                Log::error('Google Calendar Error: ' . $e->getMessage());
+            }
+        }
+
+        return response()->json(['message' => 'Makanan berhasil diupdate', 'data' => $food]);
+    }
+
+    // Remind - tambah reminder ke calendar
+    public function remind($id)
+    {
+        try {
+            $food = Food::where('user_id', Auth::id())->findOrFail($id);
+
+            $today = Carbon::now()->startOfDay();
+            $expiryDate = $food->tanggal_kadaluarsa ? Carbon::parse($food->tanggal_kadaluarsa)->startOfDay() : null;
+
+            // Tentukan tanggal reminder berikutnya
+            $nextReminder = null;
+            if ($expiryDate) {
+                $lastReminder = $food->terakhir_diingatkan ? Carbon::parse($food->terakhir_diingatkan) : $today;
+                $nextReminder = $lastReminder->copy()->addDay();
+
+                if ($nextReminder->greaterThan($expiryDate)) {
+                    $nextReminder = $expiryDate;
+                }
+                if ($nextReminder->lessThan($today)) {
+                    $nextReminder = $today;
+                }
+            }
+
+            $food->terakhir_diingatkan = now();
+            $food->save();
+
+            // Update atau buat event di Google Calendar
+            $eventId = null;
+            if (Auth::user()->google_token && $food->tanggal_kadaluarsa && $nextReminder) {
+                try {
+                    $calendarService = new GoogleCalendarService(Auth::user());
+
+                    if ($food->google_event_id) {
+                        try {
+                            $calendarService->deleteEvent($food->google_event_id);
+                        } catch (\Exception $e) {
+                            Log::error('Delete old event error: ' . $e->getMessage());
+                        }
+                    }
+
+                    // Untuk Buah & Sayur: reminder di hari kadaluarsa
+                    if ($food->jenis === 'Buah' || $food->jenis === 'Sayur') {
+                        // Pastikan reminder tidak melebihi tanggal kadaluarsa
+                        $reminderDate = $nextReminder->copy();
+                        if ($reminderDate->greaterThan($expiryDate)) {
+                            $reminderDate = $expiryDate;
+                        }
+                        $eventId = $calendarService->createEventOnExpiryDate($food, $reminderDate);
+                    } else {
+                        $eventId = $calendarService->createEventWithCustomDate($food, $nextReminder);
+                    }
+
+                    $food->google_event_id = $eventId;
+                    $food->save();
+                } catch (\Exception $e) {
+                    Log::error('Google Calendar Error in remind: ' . $e->getMessage());
+                }
+            }
+
+            return response()->json([
+                'message' => '🔔 Pengingat berhasil ditambahkan!',
+                'data' => $food,
+                'next_reminder' => $nextReminder ? $nextReminder->format('d F Y') : null,
+                'google_event_id' => $eventId
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Remind method error: ' . $e->getMessage());
+            return response()->json(['error' => 'Gagal memproses pengingat: ' . $e->getMessage()], 500);
+        }
+    }
+
+    // Consume - hapus event calendar jika makanan sudah dikonsumsi
+    public function consume($id)
+    {
+        $food = Food::where('user_id', Auth::id())->findOrFail($id);
+        $food->update(['status_penggunaan' => 'habis']);
+
+        // Hapus event dari Google Calendar
+        if ($food->google_event_id && Auth::user()->google_token) {
+            try {
+                $calendarService = new GoogleCalendarService(Auth::user());
+                $calendarService->deleteEvent($food->google_event_id);
+            } catch (\Exception $e) {
+                Log::error('Google Calendar Error: ' . $e->getMessage());
+            }
+        }
+
+        return response()->json(['message' => 'Sudah dikonsumsi']);
+    }
+
+    // Discard - hapus event calendar jika makanan dibuang
+    public function discard($id)
+    {
+        $food = Food::where('user_id', Auth::id())->findOrFail($id);
+        $food->update(['status_penggunaan' => 'dibuang']);
+
+        // Hapus event dari Google Calendar
+        if ($food->google_event_id && Auth::user()->google_token) {
+            try {
+                $calendarService = new GoogleCalendarService(Auth::user());
+                $calendarService->deleteEvent($food->google_event_id);
+            } catch (\Exception $e) {
+                Log::error('Google Calendar Error: ' . $e->getMessage());
+            }
+        }
+
+        return response()->json(['message' => 'Dibuang']);
+    }
 
     // HALAMAN Detail
     public function show($id)
     {
-        $food = Food::where('id', $id)->where('user_id', 1)->firstOrFail();
+        $food = Food::where('id', $id)->where('user_id', Auth::id())->firstOrFail();
 
         return response()->json([
             'id' => $food->id,
@@ -105,35 +275,10 @@ class FoodController extends Controller
         ]);
     }
 
-    // Button Sudah dikonsumsi
-    public function consume($id)
-    {
-        $food = Food::where('id', $id)->where('user_id', 1)->firstOrFail();
-        $food->update(['status_penggunaan' => 'habis']);
-        return response()->json(['message' => 'Sudah dikonsumsi']);
-    }
-
-    // Button Dibuang
-    public function discard($id)
-    {
-        $food = Food::where('id', $id)->where('user_id', 1)->firstOrFail();
-        $food->update(['status_penggunaan' => 'dibuang']);
-        return response()->json(['message' => 'Dibuang']);
-    }
-
-    // Button Ingatkan lagi
-    public function remind($id)
-    {
-        $food = Food::where('id', $id)->where('user_id', 1)->firstOrFail();
-        $food->update(['terakhir_diingatkan' => now()]);
-        return response()->json(['message' => 'Di ingatkan lagi']);
-    }
-
-    // DASHBOARD
-    // StatsCard
+    // DASHBOARD - StatsCard
     public function dashboard(Request $request)
     {
-        $userId = 1;  // SEMENTARA, nanti ganti dengan auth()->id()
+        $userId = Auth::id();
 
         return response()->json([
             'total_makanan' => Food::where('user_id', $userId)->count(),
@@ -155,10 +300,10 @@ class FoodController extends Controller
         ]);
     }
 
-    // Table
+    // DASHBOARD - Table (Makanan Mendekati Kadaluarsa)
     public function expiringSoon()
     {
-        $foods = Food::where('user_id', 1)
+        $foods = Food::where('user_id', Auth::id())
             ->where('status_penggunaan', 'tersedia')
             ->whereNotNull('tanggal_kadaluarsa')
             ->where('tanggal_kadaluarsa', '>=', now())
@@ -181,10 +326,10 @@ class FoodController extends Controller
         return response()->json($foods);
     }
 
-    // Chart
+    // DASHBOARD - Chart
     public function wasteChart()
     {
-        $userId = 1; // sementara, nanti ganti dengan auth()->id()
+        $userId = Auth::id();
 
         $months = [];
         $pcsData = [];
